@@ -4,11 +4,15 @@ import { Header } from './components/Header'
 import { ColorPalette } from './components/ColorPalette'
 import { useAutoSave } from './hooks/useAutoSave'
 import { useStore } from './store'
+import { useWebSocket } from './hooks/useWebSocket'
 import { useEffect } from 'react'
+
 
 function App() {
   useAutoSave();
-  const { undo, redo } = useStore();
+  const { undo, redo, elements, setElements, selectedElementId, selectElement, saveSnapshot } = useStore();
+  const { sendMessage } = useWebSocket();
+
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -25,11 +29,27 @@ function App() {
         e.preventDefault();
         redo();
       }
+      // Delete: Delete or Backspace (if not in input)
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedElementId) {
+        // Prevent delete if user is typing in an input
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+        e.preventDefault();
+        saveSnapshot();
+        const newElements = elements.filter(el => el.id !== selectedElementId);
+        setElements(newElements);
+        sendMessage(newElements);
+        selectElement(null);
+      }
     };
 
+
     window.addEventListener('keydown', handleKeyDown);
+
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, elements, selectedElementId, setElements, selectElement, saveSnapshot, sendMessage]);
+
 
   return (
     <div className="w-screen h-screen overflow-hidden relative bg-gray-50">
