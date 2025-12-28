@@ -17,6 +17,8 @@ export const Canvas = () => {
     const [resizeHandle, setResizeHandle] = useState<string | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [dragOffset, setDragOffset] = useState<{ x: number, y: number } | null>(null);
+    const [lastDist, setLastDist] = useState<number | null>(null); // For pinch zoom
+
 
     // Text Input Modal State
     const [isTextModalOpen, setIsTextModalOpen] = useState(false);
@@ -54,16 +56,31 @@ export const Canvas = () => {
         };
 
         const newScale = e.evt.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy;
+        performZoom(newScale, pointer, mousePointTo);
+    };
 
+    const performZoom = (newScale: number, center: { x: number, y: number }, pointTo: { x: number, y: number }) => {
         // Limit zoom
         if (newScale < 0.1 || newScale > 5) return;
 
         setCamera({
             zoom: newScale,
-            x: pointer.x - mousePointTo.x * newScale,
-            y: pointer.y - mousePointTo.y * newScale,
+            x: center.x - pointTo.x * newScale,
+            y: center.y - pointTo.y * newScale,
         });
-    };
+    }
+
+    const getDistance = (p1: { x: number, y: number }, p2: { x: number, y: number }) => {
+        return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+    }
+
+    const getCenter = (p1: { x: number, y: number }, p2: { x: number, y: number }) => {
+        return {
+            x: (p1.x + p2.x) / 2,
+            y: (p1.y + p2.y) / 2,
+        };
+    }
+
 
     const isWithinElement = (x: number, y: number, element: any) => {
         const { x: ex, y: ey, width, height, type, points } = element;
@@ -114,7 +131,8 @@ export const Canvas = () => {
         setTextPosition(null);
     };
 
-    const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+
         const stage = e.target.getStage();
 
         const pos = getPointerPosition(stage);
@@ -200,8 +218,37 @@ export const Canvas = () => {
         addElement(newElement);
     };
 
-    const handleMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    const handleMouseMove = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
         const stage = e.target.getStage();
+
+        // Touch: Handle Pinch Zoom
+        if (e.evt.type === 'touchmove') {
+            const touchEvt = e.evt as TouchEvent;
+            if (touchEvt.touches.length === 2) {
+                // Multi-touch: Pinch Zoom
+                const p1 = { x: touchEvt.touches[0].clientX, y: touchEvt.touches[0].clientY };
+                const p2 = { x: touchEvt.touches[1].clientX, y: touchEvt.touches[1].clientY };
+
+                const dist = getDistance(p1, p2);
+
+                if (!lastDist) {
+                    setLastDist(dist);
+                }
+
+                const pointTo = {
+                    x: (getCenter(p1, p2).x - camera.x) / camera.zoom,
+                    y: (getCenter(p1, p2).y - camera.y) / camera.zoom,
+                };
+
+                const scale = dist / (lastDist || dist);
+                const newScale = camera.zoom * scale;
+
+                performZoom(newScale, getCenter(p1, p2), pointTo);
+                setLastDist(dist);
+                return;
+            }
+        }
+
         const pos = getPointerPosition(stage);
         if (!pos) return;
 
@@ -306,6 +353,7 @@ export const Canvas = () => {
     };
 
     const handleMouseUp = () => {
+        setLastDist(null); // Reset pinch zoom
         if (isDrawing || isResizing || isDragging) {
             sendMessage(elements);
         }
@@ -401,6 +449,9 @@ export const Canvas = () => {
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
+                onTouchStart={handleMouseDown}
+                onTouchMove={handleMouseMove}
+                onTouchEnd={handleMouseUp}
                 onWheel={handleWheel}
                 scaleX={camera.zoom}
                 scaleY={camera.zoom}

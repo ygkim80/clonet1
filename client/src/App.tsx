@@ -52,7 +52,7 @@ function App() {
 
 
   return (
-    <div className="w-screen h-screen overflow-hidden relative bg-gray-50">
+    <div className="w-screen h-screen overflow-hidden relative bg-gray-50" style={{ touchAction: 'none' }}>
       <Header />
       <Canvas />
       <Toolbar />
