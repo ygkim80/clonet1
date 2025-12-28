@@ -139,7 +139,10 @@ export const Canvas = () => {
         if (!pos) return;
 
         // Pan Logic (Middle Click always pans)
-        const isMiddleClick = e.evt.button === 1;
+        // Check if it's a mouse event for middle click
+        const isMouseEvent = e.evt.type.startsWith('mouse');
+        const isMiddleClick = isMouseEvent && (e.evt as MouseEvent).button === 1;
+
         if (isMiddleClick) {
             setIsPanning(true);
             return;
@@ -259,9 +262,19 @@ export const Canvas = () => {
         }
 
         if (isPanning) {
+            // Mouse panning uses movementX/Y
+            const evt = e.evt;
+            let dx = 0;
+            let dy = 0;
+
+            if ('movementX' in evt) {
+                dx = (evt as MouseEvent).movementX;
+                dy = (evt as MouseEvent).movementY;
+            }
+
             const newPos = {
-                x: camera.x + e.evt.movementX,
-                y: camera.y + e.evt.movementY,
+                x: camera.x + dx,
+                y: camera.y + dy,
                 zoom: camera.zoom
             };
             setCamera(newPos);
