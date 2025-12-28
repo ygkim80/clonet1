@@ -18,14 +18,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY ./server .
 
 # Copy Built Frontend Assets from build-step
-# We place them in a client/dist folder relative to /app/server logic
-# The python code expects ../client/dist so we structure:
-# /app/server (current WORKDIR)
-# /app/client/dist
-COPY --from=build-step /app/dist ../client/dist
+# Place them in /app/static for simpler access
+COPY --from=build-step /app/dist ./static
 
 # Expose port
 EXPOSE 8000
 
 # Run Command
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run Command (Use PORT env var if available)
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

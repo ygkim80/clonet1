@@ -40,8 +40,10 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # Serve React App (Production)
 # Ensure this is AFTER API/WebSocket routes
-if os.path.exists("../client/dist"):
-    app.mount("/assets", StaticFiles(directory="../client/dist/assets"), name="assets")
+# Serve React App (Production)
+# Ensure this is AFTER API/WebSocket routes
+if os.path.exists("static"):
+    app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
 
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):
@@ -51,5 +53,5 @@ if os.path.exists("../client/dist"):
              return {"error": "Not found"}
         
         # Fallback to index.html for SPA routing
-        return FileResponse("../client/dist/index.html")
+        return FileResponse("static/index.html")
 
