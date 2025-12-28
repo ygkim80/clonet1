@@ -1,4 +1,3 @@
-import React from 'react';
 import { useStore } from '../store';
 
 const COLORS = [
@@ -20,8 +19,8 @@ export const ColorPalette = () => {
                     key={color.value}
                     onClick={() => setStrokeColor(color.value)}
                     className={`w-8 h-8 rounded-full border-2 transition-all ${strokeColor === color.value
-                            ? 'border-gray-900 scale-110 shadow-md'
-                            : 'border-transparent hover:scale-105'
+                        ? 'border-gray-900 scale-110 shadow-md'
+                        : 'border-transparent hover:scale-105'
                         }`}
                     style={{ backgroundColor: color.value }}
                     title={color.name}
