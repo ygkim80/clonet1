@@ -2,6 +2,8 @@ import { Canvas } from './components/Canvas'
 import { Toolbar } from './components/Toolbar'
 import { Header } from './components/Header'
 import { ColorPalette } from './components/ColorPalette'
+import { Sidebar } from './components/Sidebar'
+
 import { useAutoSave } from './hooks/useAutoSave'
 import { useStore } from './store'
 import { useWebSocket } from './hooks/useWebSocket'
@@ -57,6 +59,7 @@ function App() {
       <Canvas />
       <Toolbar />
       <ColorPalette />
+      <Sidebar />
       <div className="absolute top-4 right-4 pointer-events-none select-none bg-white/50 p-2 rounded text-xs text-gray-500">
         clonet1 dev preview (M5 - Polished)
       </div>

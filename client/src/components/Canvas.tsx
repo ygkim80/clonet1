@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Stage, Layer, Path, Line as KonvaLine, Text, Ellipse } from 'react-konva';
+import { Stage, Layer, Path, Line as KonvaLine, Text, Ellipse, Rect, Star } from 'react-konva';
 import rough from 'roughjs';
 import Konva from 'konva';
 import { useStore } from '../store';
@@ -11,6 +11,51 @@ const generator = rough.generator();
 export const Canvas = () => {
     const { tool, elements, addElement, updateElement, camera, setCamera, saveSnapshot, selectedElementId, selectElement, strokeColor } = useStore();
     const { sendMessage } = useWebSocket();
+    // Drop Handler
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        const shapeType = e.dataTransfer.getData('shapeType');
+        if (!shapeType || tool !== 'selection') return;
+
+        const stage = (e.target as any).getStage ? (e.target as any).getStage() : null;
+        // If dropped on DOM element over canvas, might need calculating client rect.
+        // Simplified: use clientX/Y and convert with stage logic if available, or just camera logic.
+
+        // Better: standard client coords to canvas coords conversion
+        // x = (clientX - stageX) / scale
+        // y = (clientY - stageY) / scale
+        // But we don't have direct ref to stage instance here strictly unless we use useRef for stage.
+        // We can use camera state directly.
+        // Assuming full screen canvas:
+        const x = (e.clientX - camera.x) / camera.zoom;
+        const y = (e.clientY - camera.y) / camera.zoom;
+
+        const id = Date.now().toString();
+        const baseSize = 60;
+
+        const newElement: any = {
+            id,
+            type: shapeType, // e.g., 'clean_square'
+            x: x - baseSize / 2, // Center on drop
+            y: y - baseSize / 2,
+            width: baseSize,
+            height: baseSize,
+            stroke: strokeColor,
+            style: 'clean' // Flag to render differently
+        };
+
+        addElement(newElement);
+        sendMessage([...elements, newElement]);
+        saveSnapshot();
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        if (tool === 'selection') {
+            e.dataTransfer.dropEffect = 'copy';
+        }
+    };
+
     const [isDrawing, setIsDrawing] = useState(false);
     const [isPanning, setIsPanning] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
@@ -29,6 +74,7 @@ export const Canvas = () => {
     const [laserPoints, setLaserPoints] = useState<number[]>([]);
     const [laserOpacity, setLaserOpacity] = useState(1);
     const laserFadeRef = useRef<number | null>(null);
+    const lastPointerPos = useRef<{ x: number, y: number } | null>(null);
 
     // Coordinate Conversion: Screen (Pointer) -> World (Canvas)
     const getPointerPosition = (stage: any) => {
@@ -180,6 +226,12 @@ export const Canvas = () => {
                 // Background click
                 selectElement(null);
                 setIsPanning(true); // Dragging on empty space pans
+                // Store initial pointer pos for touch panning
+                const evt = e.evt;
+                if (evt.type === 'touchstart') {
+                    const touch = (evt as TouchEvent).touches[0];
+                    lastPointerPos.current = { x: touch.clientX, y: touch.clientY };
+                }
             }
             return;
         }
@@ -262,12 +314,30 @@ export const Canvas = () => {
         }
 
         if (isPanning) {
-            // Mouse panning uses movementX/Y
+            // Mouse panning uses movementX/Y, Touch needs manual calculation
             const evt = e.evt;
             let dx = 0;
             let dy = 0;
 
-            if ('movementX' in evt) {
+            if (evt.type === 'touchmove') {
+                const touch = (evt as TouchEvent).touches[0];
+                const currentPos = { x: touch.clientX, y: touch.clientY };
+
+                // If we have a previous position tracked in a ref (we need to track it)
+                // Re-using dragOffset for panning start point might be tricky if we want delta
+                // Let's use a new ref or just use the dragOffset/lastDist equivalent logic
+                // Actually, simpler approach:
+                // We can use the existing 'dragOffset' or create a 'lastPanPosition' ref.
+                // But wait, the existing logic relied entirely on movementX.
+
+                // Let's deduce dx/dy from last position.
+                // We need to store last Touch position.
+                if (lastPointerPos.current) {
+                    dx = currentPos.x - lastPointerPos.current.x;
+                    dy = currentPos.y - lastPointerPos.current.y;
+                }
+                lastPointerPos.current = currentPos;
+            } else if ('movementX' in evt) {
                 dx = (evt as MouseEvent).movementX;
                 dy = (evt as MouseEvent).movementY;
             }
@@ -374,8 +444,10 @@ export const Canvas = () => {
         setIsPanning(false);
         setIsResizing(false);
         setIsDragging(false);
+        setIsDragging(false);
         setResizeHandle(null);
         setDragOffset(null);
+        lastPointerPos.current = null;
 
         if (tool === 'laser') {
             startLaserFade();
@@ -456,62 +528,73 @@ export const Canvas = () => {
 
     return (
         <>
-            <Stage
-                width={window.innerWidth}
-                height={window.innerHeight}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onTouchStart={handleMouseDown}
-                onTouchMove={handleMouseMove}
-                onTouchEnd={handleMouseUp}
-                onWheel={handleWheel}
-                scaleX={camera.zoom}
-                scaleY={camera.zoom}
-                x={camera.x}
-                y={camera.y}
-                className="bg-gray-50 cursor-crosshair"
+            <div
+                className="w-full h-full"
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
             >
-                <Layer>
-                    {elements.map((element) => {
-                        // Highlight if selected
-                        const isSelected = element.id === selectedElementId;
+                <Stage
+                    width={window.innerWidth}
+                    height={window.innerHeight}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onTouchStart={handleMouseDown}
+                    onTouchMove={handleMouseMove}
+                    onTouchEnd={handleMouseUp}
+                    onWheel={handleWheel}
+                    scaleX={camera.zoom}
+                    scaleY={camera.zoom}
+                    x={camera.x}
+                    y={camera.y}
+                    className="bg-gray-50 cursor-crosshair"
+                >
+                    <Layer>
+                        {elements.map((element) => {
+                            // Highlight if selected
+                            const isSelected = element.id === selectedElementId;
 
-                        if (element.type === 'text') {
-                            return (
-                                <Text
-                                    key={element.id}
-                                    x={element.x}
-                                    y={element.y}
-                                    text={element.text}
-                                    fontSize={element.fontSize || 24}
-                                    width={element.width}
-                                    fontFamily='"Patrick Hand", cursive'
-                                    fill={element.stroke}
-                                    opacity={isSelected ? 0.7 : 1}
-                                    listening={false}
-                                />
-                            );
-                        }
-                        return <RoughShape key={element.id} element={element} selected={isSelected} />;
-                    })}
+                            if (element.type === 'text') {
+                                return (
+                                    <Text
+                                        key={element.id}
+                                        x={element.x}
+                                        y={element.y}
+                                        text={element.text}
+                                        fontSize={element.fontSize || 24}
+                                        width={element.width}
+                                        fontFamily='"Patrick Hand", cursive'
+                                        fill={element.stroke}
+                                        opacity={isSelected ? 0.7 : 1}
+                                        listening={false}
+                                    />
+                                );
+                            }
 
-                    {/* Render Selection UI on top */}
-                    {selectedElement && renderSelectionBox(selectedElement)}
+                            if (element.style === 'clean' || element.type.startsWith('clean_')) {
+                                return <CleanShape key={element.id} element={element} selected={isSelected} />;
+                            }
 
-                    {laserPoints.length > 0 && (
-                        <KonvaLine
-                            points={laserPoints}
-                            stroke="#ef4444"
-                            strokeWidth={4 / camera.zoom}
-                            lineCap="round"
-                            lineJoin="round"
-                            opacity={laserOpacity}
-                            listening={false}
-                        />
-                    )}
-                </Layer>
-            </Stage>
+                            return <RoughShape key={element.id} element={element} selected={isSelected} />;
+                        })}
+
+                        {/* Render Selection UI on top */}
+                        {selectedElement && renderSelectionBox(selectedElement)}
+
+                        {laserPoints.length > 0 && (
+                            <KonvaLine
+                                points={laserPoints}
+                                stroke="#ef4444"
+                                strokeWidth={4 / camera.zoom}
+                                lineCap="round"
+                                lineJoin="round"
+                                opacity={laserOpacity}
+                                listening={false}
+                            />
+                        )}
+                    </Layer>
+                </Stage>
+            </div>
 
             <Modal
                 isOpen={isTextModalOpen}
@@ -538,6 +621,236 @@ export const Canvas = () => {
         </>
     );
 };
+
+const CleanShape = ({ element, selected }: { element: any, selected: boolean }) => {
+    const { type, x, y, width, height, stroke = '#000000' } = element;
+    const props = {
+        x, y, width, height,
+        stroke: stroke,
+        strokeWidth: 2,
+        fill: 'transparent',
+        opacity: selected ? 0.8 : 1, // Visual feedback for selection if needed, handle is main feedback
+        listening: false
+    };
+
+    // Handle resizing logic: Konva shapes often use scale or direct width/height.
+    // Our primitive resize logic updates width/height directly.
+
+    // Normalized dimensions for rendering inside x,y
+    const absW = Math.abs(width);
+    const absH = Math.abs(height);
+    const finalX = width < 0 ? x + width : x;
+    const finalY = height < 0 ? y + height : y;
+
+    // Helper for centering paths
+    // We scale paths to fit the box. Standard icon viewport 24x24.
+    const scaleX = absW / 24;
+    const scaleY = absH / 24;
+
+    switch (type) {
+        // --- Geometric ---
+        case 'clean_square':
+        case 'clean_rounded_rect':
+            return <Rect {...props} x={finalX} y={finalY} width={absW} height={absH} cornerRadius={type === 'clean_rounded_rect' ? Math.min(absW, absH) * 0.2 : 0} />;
+
+        case 'clean_circle':
+            return <Ellipse {...props} x={finalX + absW / 2} y={finalY + absH / 2} radiusX={absW / 2} radiusY={absH / 2} />;
+
+        case 'clean_triangle':
+            return <KonvaLine {...props} x={0} y={0} points={[finalX + absW / 2, finalY, finalX, finalY + absH, finalX + absW, finalY + absH]} closed />;
+
+        case 'clean_diamond':
+            return <KonvaLine {...props} x={0} y={0} points={[finalX + absW / 2, finalY, finalX + absW, finalY + absH / 2, finalX + absW / 2, finalY + absH, finalX, finalY + absH / 2]} closed />;
+
+        case 'clean_parallelogram':
+            return <KonvaLine {...props} x={0} y={0} points={[
+                finalX + absW * 0.25, finalY,
+                finalX + absW, finalY,
+                finalX + absW * 0.75, finalY + absH,
+                finalX, finalY + absH
+            ]} closed />;
+
+        case 'clean_hexagon':
+            return <KonvaLine {...props} x={0} y={0} points={[
+                finalX + absW * 0.25, finalY,
+                finalX + absW * 0.75, finalY,
+                finalX + absW, finalY + absH * 0.5,
+                finalX + absW * 0.75, finalY + absH,
+                finalX + absW * 0.25, finalY + absH,
+                finalX, finalY + absH * 0.5
+            ]} closed />;
+
+        case 'clean_octagon':
+            const s = 0.3; // indent factor
+            return <KonvaLine {...props} x={0} y={0} points={[
+                finalX + absW * s, finalY,
+                finalX + absW * (1 - s), finalY,
+                finalX + absW, finalY + absH * s,
+                finalX + absW, finalY + absH * (1 - s),
+                finalX + absW * (1 - s), finalY + absH,
+                finalX + absW * s, finalY + absH,
+                finalX, finalY + absH * (1 - s),
+                finalX, finalY + absH * s
+            ]} closed />;
+
+        case 'clean_cylinder':
+        case 'clean_database': // Database is often just a cylinder
+            // database/cylinder: Two ellipses connected by lines.
+            // Top Ellipse
+            return (
+                <>
+                    <Ellipse {...props} x={finalX + absW / 2} y={finalY + absH * 0.15} radiusX={absW / 2} radiusY={absH * 0.15} />
+                    <Path {...props} x={finalX} y={finalY} scaleX={1} scaleY={1}
+                        data={`M0,${absH * 0.15} v${absH * 0.7} a${absW / 2},${absH * 0.15} 0 0,0 ${absW},0 v-${absH * 0.7}`} />
+                    {type === 'clean_database' && (
+                        // Extra lines for DB layers
+                        <Path {...props} x={finalX} y={finalY} scaleX={1} scaleY={1} strokeWidth={1}
+                            data={`M0,${absH * 0.4} a${absW / 2},${absH * 0.15} 0 0,0 ${absW},0 M0,${absH * 0.65} a${absW / 2},${absH * 0.15} 0 0,0 ${absW},0`} />
+                    )}
+                </>
+            );
+
+        // --- Arrows ---
+        case 'clean_arrow_right':
+            return <KonvaLine {...props} x={0} y={0} points={[
+                finalX, finalY + absH * 0.25,
+                finalX + absW * 0.5, finalY + absH * 0.25,
+                finalX + absW * 0.5, finalY,
+                finalX + absW, finalY + absH * 0.5,
+                finalX + absW * 0.5, finalY + absH,
+                finalX + absW * 0.5, finalY + absH * 0.75,
+                finalX, finalY + absH * 0.75
+            ]} closed />;
+
+        case 'clean_arrow_left':
+            return <KonvaLine {...props} x={0} y={0} points={[
+                finalX + absW, finalY + absH * 0.25,
+                finalX + absW * 0.5, finalY + absH * 0.25,
+                finalX + absW * 0.5, finalY,
+                finalX, finalY + absH * 0.5,
+                finalX + absW * 0.5, finalY + absH,
+                finalX + absW * 0.5, finalY + absH * 0.75,
+                finalX + absW, finalY + absH * 0.75
+            ]} closed />;
+
+        case 'clean_arrow_up':
+            return <KonvaLine {...props} x={0} y={0} points={[
+                finalX + absW * 0.25, finalY + absH,
+                finalX + absW * 0.25, finalY + absH * 0.5,
+                finalX, finalY + absH * 0.5,
+                finalX + absW * 0.5, finalY,
+                finalX + absW, finalY + absH * 0.5,
+                finalX + absW * 0.75, finalY + absH * 0.5,
+                finalX + absW * 0.75, finalY + absH
+            ]} closed />;
+
+        case 'clean_arrow_down':
+            return <KonvaLine {...props} x={0} y={0} points={[
+                finalX + absW * 0.25, finalY,
+                finalX + absW * 0.25, finalY + absH * 0.5,
+                finalX, finalY + absH * 0.5,
+                finalX + absW * 0.5, finalY + absH,
+                finalX + absW, finalY + absH * 0.5,
+                finalX + absW * 0.75, finalY + absH * 0.5,
+                finalX + absW * 0.75, finalY
+            ]} closed />;
+
+
+        // --- Symbols / Icons (Using Paths) ---
+        case 'clean_star':
+            return <Star x={finalX + absW / 2} y={finalY + absH / 2} numPoints={5} innerRadius={Math.min(absW, absH) * 0.2} outerRadius={Math.min(absW, absH) * 0.5} stroke={stroke} strokeWidth={2} fill="transparent" listening={false} />;
+
+        case 'clean_heart':
+            return <Path {...props} x={finalX} y={finalY} scaleX={scaleX} scaleY={scaleY} data="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />;
+
+        case 'clean_cloud':
+            return <Path {...props} x={finalX} y={finalY} scaleX={scaleX} scaleY={scaleY} data="M17.5 19c2.485 0 4.5-2.015 4.5-4.5s-2.015-4.5-4.5-4.5c-.4 0-.77.06-1.12.18-.78-2.9-3.37-5.06-6.38-5.06-3.66 0-6.63 2.87-6.86 6.5C1.34 11.96 0 13.8 0 16c0 2.76 2.24 5 5 5h12.5z" />;
+
+        case 'clean_message':
+            // Message Circle / Bubble
+            return <Path {...props} x={finalX} y={finalY} scaleX={scaleX} scaleY={scaleY} data="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />;
+
+        case 'clean_file':
+            // File Icon
+            return <Path {...props} x={finalX} y={finalY} scaleX={scaleX} scaleY={scaleY} data="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z M14 2v6h6" />;
+
+        case 'clean_folder':
+            // Folder Icon
+            return <Path {...props} x={finalX} y={finalY} scaleX={scaleX} scaleY={scaleY} data="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />;
+
+        case 'clean_user':
+            // User Icon
+            return <Path {...props} x={finalX} y={finalY} scaleX={scaleX} scaleY={scaleY} data="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" />;
+
+        case 'clean_lock':
+            // Simple Lock: Body + Shackle
+            return (
+                <>
+                    {/* Body */}
+                    <Rect {...props} x={finalX} y={finalY + absH * 0.4} width={absW} height={absH * 0.6} cornerRadius={2} />
+                    {/* Shackle */}
+                    <Path {...props} x={finalX} y={finalY} scaleX={1} scaleY={1} fill="transparent"
+                        data={`M${absW * 0.2},${absH * 0.4} V${absH * 0.25} a${absW * 0.3},${absW * 0.3} 0 0,1 ${absW * 0.6},0 V${absH * 0.4}`} />
+                </>
+            );
+
+        case 'clean_unlock':
+            // Unlock: Shackle is raised/offset and open
+            return (
+                <>
+                    {/* Body */}
+                    <Rect {...props} x={finalX} y={finalY + absH * 0.4} width={absW} height={absH * 0.6} cornerRadius={2} />
+                    {/* Shackle (Open) */}
+                    <Path {...props} x={finalX} y={finalY} scaleX={1} scaleY={1} fill="transparent"
+                        data={`M${absW * 0.8},${absH * 0.4} V${absH * 0.25} a${absW * 0.3},${absW * 0.3} 0 0,0 -${absW * 0.6},0 V${absH * 0.2}`} />
+                </>
+            );
+
+        case 'clean_calendar':
+            return <Path {...props} x={finalX} y={finalY} scaleX={scaleX} scaleY={scaleY} data="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z M16 2v4 M8 2v4 M3 10h18" />;
+
+        case 'clean_clock':
+            return <Path {...props} x={finalX} y={finalY} scaleX={scaleX} scaleY={scaleY} data="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 6v6l4 2" />;
+
+        case 'clean_check':
+            return <Path {...props} x={finalX} y={finalY} scaleX={scaleX} scaleY={scaleY} data="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />;
+
+        case 'clean_cross':
+            return <Path {...props} x={finalX} y={finalY} scaleX={scaleX} scaleY={scaleY} data="M18 6L6 18 M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />;
+
+        case 'clean_alert':
+            // Alert: Triangle with Exclamation Mark !
+            return (
+                <>
+                    <KonvaLine {...props} x={0} y={0} points={[finalX + absW / 2, finalY, finalX, finalY + absH, finalX + absW, finalY + absH]} closed />
+                    {/* Exclamation Mark: Line + Dot */}
+                    <KonvaLine {...props} x={0} y={0} points={[finalX + absW / 2, finalY + absH * 0.35, finalX + absW / 2, finalY + absH * 0.65]} strokeWidth={Math.max(2, absW * 0.08)} strokeLineCap="round" />
+                    <Ellipse {...props} x={finalX + absW / 2} y={finalY + absH * 0.80} radiusX={absW * 0.05} radiusY={absW * 0.05} fill={stroke} strokeWidth={0} />
+                </>
+            );
+
+        case 'clean_info':
+            // Info: Circle with Lowercase i
+            return (
+                <>
+                    <Ellipse {...props} x={finalX + absW / 2} y={finalY + absH / 2} radiusX={absW / 2} radiusY={absH / 2} />
+                    {/* Lowercase i: Dot + Line */}
+                    <Ellipse {...props} x={finalX + absW / 2} y={finalY + absH * 0.3} radiusX={absW * 0.05} radiusY={absW * 0.05} fill={stroke} strokeWidth={0} />
+                    <KonvaLine {...props} x={0} y={0} points={[finalX + absW / 2, finalY + absH * 0.45, finalX + absW / 2, finalY + absH * 0.75]} strokeWidth={Math.max(2, absW * 0.08)} strokeLineCap="round" />
+                </>
+            );
+
+        case 'clean_plus':
+            return <Path {...props} x={finalX} y={finalY} scaleX={scaleX} scaleY={scaleY} data="M12 5v14 M5 12h14" strokeLinecap="round" />;
+
+        case 'clean_minus':
+            return <Path {...props} x={finalX} y={finalY} scaleX={scaleX} scaleY={scaleY} data="M5 12h14" strokeLinecap="round" />;
+
+        // Default fallback
+        default:
+            return <Rect {...props} x={finalX} y={finalY} width={absW} height={absH} cornerRadius={2} />;
+    }
+}
 
 const RoughShape = (props: { element: any, selected?: boolean }) => {
     const { element } = props;
