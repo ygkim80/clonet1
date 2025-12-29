@@ -17,7 +17,8 @@ export const Canvas = () => {
         const shapeType = e.dataTransfer.getData('shapeType');
         if (!shapeType || tool !== 'selection') return;
 
-        const stage = (e.target as any).getStage ? (e.target as any).getStage() : null;
+        // Stage is available via e.target if needed, but we calculate coordinates using camera state.
+
         // If dropped on DOM element over canvas, might need calculating client rect.
         // Simplified: use clientX/Y and convert with stage logic if available, or just camera logic.
 

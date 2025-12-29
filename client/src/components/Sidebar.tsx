@@ -1,7 +1,7 @@
 import React from 'react';
 import { useStore } from '../store';
 import {
-    Square, Circle, Triangle, Diamond, Command, MousePointer2,
+    Square, Circle, Triangle, Diamond,
     Database, Cloud, Star, Heart, Hexagon, Octagon,
     ArrowRight, ArrowLeft, ArrowUp, ArrowDown,
     MessageCircle, FileText, Folder, User, Lock, Unlock,
